@@ -52,3 +52,61 @@ def parse_lspci(text: str) -> list:
         name = next((b for b in brackets if " " in b), None)
         devices.append({"name": name, "pci": pci_m.group(1) if pci_m else None})
     return devices
+
+
+def scan_sys() -> list:
+    """Last fallback: GPUs from /sys/class/drm (PCI ID only, no names)."""
+    out = []
+    for card in sorted(glob.glob("/sys/class/drm/card[0-9]*")):
+        vendor_f = os.path.join(card, "device", "vendor")
+        device_f = os.path.join(card, "device", "device")
+        try:
+            vendor = int(open(vendor_f).read().strip(), 16)
+            device = int(open(device_f).read().strip(), 16)
+        except (OSError, ValueError):
+            continue
+        out.append({"name": None, "pci": f"{vendor:04x}:{device:04x}"})
+    return out
+
+
+def _normalize(d: dict, source: str, index: int) -> dict:
+    return {
+        "name": d.get("name") or d.get("pci") or "unknown",
+        "pci": d.get("pci"),
+        "source": source,
+        "index": index,  # 0-based position (used for VKD3D_VULKAN_DEVICE)
+    }
+
+
+def _run_tool(run, cmd):
+    try:
+        p = run(cmd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return p.stdout if p.returncode == 0 else None
+
+
+def list_gpus(vulkan_devices=None, lspci_run=subprocess.run,
+              which=shutil.which, sys_gpus=None):
+    """GPU list: Vulkan (ctypes, zero-dep) -> lspci -> /sys.
+
+    `vulkan_devices` - a callable returning [{"name","pci"}]; defaults to
+    `vulkan.enumerate_vulkan_devices` (lazy import so tests need no loader).
+    `lspci_run`/`which`/`sys_gpus` are injectable for tests.
+    Returns a list of {"name", "pci", "source", "index"} (index = 0-based position).
+    """
+    if vulkan_devices is None:
+        from vulkan import enumerate_vulkan_devices as vulkan_devices
+    devices = vulkan_devices()
+    if devices:
+        return [_normalize(d, "vulkan", i) for i, d in enumerate(devices)]
+
+    if which and which("lspci"):
+        out = _run_tool(lspci_run, ["lspci", "-nn"])
+        if out:
+            parsed = parse_lspci(out)
+            if parsed:
+                return [_normalize(d, "lspci", i) for i, d in enumerate(parsed)]
+
+    devices = sys_gpus if sys_gpus is not None else scan_sys()
+    return [_normalize(d, "sys", i) for i, d in enumerate(devices)]

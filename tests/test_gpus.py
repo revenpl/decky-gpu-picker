@@ -1,6 +1,6 @@
 import unittest
 
-from gpus import build_command, parse_lspci
+from gpus import build_command, list_gpus, parse_lspci
 
 
 LSPCI_FIXTURE = """\
@@ -44,6 +44,24 @@ class BuildCommandTest(unittest.TestCase):
         )
 
 
+class FakeRun:
+    """Returns the configured responses; a missing key = FileNotFoundError."""
+
+    def __init__(self, responses):
+        self.responses = responses
+        self.calls = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        key = " ".join(cmd)
+        if key not in self.responses:
+            raise FileNotFoundError(key)
+        r = self.responses[key]
+        if isinstance(r, Exception):
+            raise r
+        return type("P", (), {"stdout": r, "returncode": 0})()
+
+
 class ParseLspciTest(unittest.TestCase):
     def test_vga_lines_only_with_pci(self):
         got = parse_lspci(LSPCI_FIXTURE)
@@ -57,6 +75,38 @@ class ParseLspciTest(unittest.TestCase):
             "05:00.0 VGA compatible controller [0300]: Unknown Vendor Unknown Device [1234:5678]"
         )
         self.assertEqual(got, [{"name": None, "pci": "1234:5678"}])
+
+
+class ListGpusTest(unittest.TestCase):
+    def test_prefers_vulkan(self):
+        vulkan = lambda: [
+            {"name": "AMD Radeon RX 9070 XT", "pci": None},
+            {"name": "AMD Radeon RX 7900 XTX", "pci": None},
+        ]
+        run = FakeRun({})
+        got = list_gpus(vulkan_devices=vulkan, lspci_run=run)
+        self.assertEqual([d["source"] for d in got], ["vulkan"] * 2)
+        self.assertEqual([d["index"] for d in got], [0, 1])
+        self.assertEqual(got[0]["name"], "AMD Radeon RX 9070 XT")
+        self.assertEqual(run.calls, [])  # lspci should not have been called
+
+    def test_falls_back_to_lspci_when_vulkan_empty(self):
+        vulkan = lambda: []
+        run = FakeRun({"lspci -nn": LSPCI_FIXTURE})
+        which = lambda name: "/usr/bin/lspci" if name == "lspci" else None
+        got = list_gpus(vulkan_devices=vulkan, lspci_run=run, which=which)
+        self.assertEqual([d["source"] for d in got], ["lspci"] * 3)
+        self.assertEqual(got[1], {"name": "Radeon RX 9070 XT", "pci": "1002:7550", "source": "lspci", "index": 1})
+
+    def test_falls_back_to_sys(self):
+        vulkan = lambda: []
+        run = FakeRun({})
+        which = lambda name: None
+        got = list_gpus(
+            vulkan_devices=vulkan, lspci_run=run, which=which,
+            sys_gpus=[{"name": None, "pci": "1002:7550"}],
+        )
+        self.assertEqual(got, [{"name": "1002:7550", "pci": "1002:7550", "source": "sys", "index": 0}])
 
 
 if __name__ == "__main__":
