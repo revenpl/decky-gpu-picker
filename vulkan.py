@@ -88,6 +88,40 @@ def load_vulkan():
     return None
 
 
+def _set_argtypes(lib):
+    """Pin the calling convention for every entry point we call.
+
+    Without explicit argtypes, a GPU handle obtained by indexing a
+    ``c_void_p`` array (``devs[i]``) is a plain Python int that ctypes
+    would pass as a 32-bit ``c_int`` - truncating the 64-bit pointer and
+    segfaulting inside vkGetPhysicalDeviceProperties. Declaring the
+    argument as ``c_void_p`` passes the full 64-bit handle. (Verified on
+    the Legion Go / AMD Phoenix1: 0/8 without argtypes, 10/10 with.)
+    """
+    lib.vkCreateInstance.argtypes = [
+        ctypes.POINTER(VkInstanceCreateInfo),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    lib.vkCreateInstance.restype = ctypes.c_int32
+
+    lib.vkEnumeratePhysicalDevices.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    lib.vkEnumeratePhysicalDevices.restype = ctypes.c_int32
+
+    lib.vkGetPhysicalDeviceProperties.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(VkPhysicalDeviceProperties),
+    ]
+    lib.vkGetPhysicalDeviceProperties.restype = None
+
+    lib.vkDestroyInstance.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    lib.vkDestroyInstance.restype = ctypes.c_int32
+
+
 def enumerate_vulkan_devices():
     """Returns [{"name": str, "pci": "<vendor:device>"}] for each Vulkan device.
 
@@ -96,6 +130,7 @@ def enumerate_vulkan_devices():
     lib = load_vulkan()
     if lib is None:
         return []
+    _set_argtypes(lib)
     inst = ctypes.c_void_p()
     try:
         ai = VkApplicationInfo()
