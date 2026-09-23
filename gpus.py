@@ -47,15 +47,37 @@ def build_command(name: str, index: int | None = None, name_count: int = 1) -> s
 
 
 def parse_lspci(text: str) -> list:
-    """`VGA compatible controller [0300]` lines from `lspci -nn` -> {"name", "pci"}."""
+    """`VGA compatible controller [0300]` lines from `lspci -nn` -> {"name", "pci"}.
+
+    lspci -nn format (device line, not the class prefix):
+        00:02.0 VGA compatible controller [0300]:
+            Advanced Micro Devices, Inc. [AMD/ATI] Phoenix1 [1002:15bf]
+    The PCI id is the first bracketed vendor:device token; the device name is
+    the bare text between the vendor bracket and the PCI bracket (or, when
+    absent, the bracket with a space - some drivers print it that way).
+    A trailing "(rev c0)" must not be picked up as the name.
+    """
     devices = []
     for line in text.splitlines():
         if "VGA compatible controller [0300]" not in line:
             continue
-        brackets = re.findall(r"\[([^\]]+)\]", line)
         pci_m = re.search(r"\[([0-9a-fA-F]{4}:[0-9a-fA-F]{4})\]", line)
-        name = next((b for b in brackets if " " in b), None)
-        devices.append({"name": name, "pci": pci_m.group(1) if pci_m else None})
+        pci = pci_m.group(1) if pci_m else None
+        rest = line[:pci_m.start()] if pci_m else line
+        rest = re.sub(r"\(.*?\)\s*$", "", rest)  # drop trailing "(rev xx)"
+        name = None
+        # Vendor bracket followed by a bare device name at the end:
+        #   "Advanced Micro Devices, Inc. [AMD/ATI] Phoenix1"
+        m = re.search(r"\[[^\]]*\]\s+([^\[\]()]+)\s*$", rest)
+        if m:
+            name = m.group(1)
+        if not name:
+            # No separate device token: use the last bracket that contains a
+            # space (vendor names contain spaces, PCI IDs do not).
+            m = re.search(r"\[([^\]]* [^\]]*)\]\s*$", rest)
+            if m:
+                name = m.group(1)
+        devices.append({"name": name, "pci": pci})
     return devices
 
 
