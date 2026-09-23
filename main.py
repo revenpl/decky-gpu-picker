@@ -1,6 +1,13 @@
-import decky
+import os
+import sys
 
-import gpus
+# Decky loads main.py in isolation (the plugin dir is NOT on sys.path), so make
+# sibling modules (gpus.py, vulkan.py) importable before anything else.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import decky  # noqa: E402
+
+import gpus  # noqa: E402
 
 
 class Plugin:
