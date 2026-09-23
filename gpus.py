@@ -15,7 +15,12 @@ __all__ = [
     "parse_lspci",
     "scan_sys",
     "list_gpus",
+    "last_lspci_error",
 ]
+
+# Reason the lspci fallback failed ("" when it was not reached or succeeded),
+# for diagnostics.
+last_lspci_error = ""
 
 
 def build_command(name: str, index: int | None = None, name_count: int = 1) -> str:
@@ -79,11 +84,18 @@ def _normalize(d: dict, source: str, index: int) -> dict:
 
 
 def _run_tool(run, cmd):
+    """Run a fallback CLI tool; record why it failed for diagnostics."""
+    global last_lspci_error
+    last_lspci_error = ""
     try:
         p = run(cmd, capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        last_lspci_error = f"{cmd[0]} raised {exc!r}"
         return None
-    return p.stdout if p.returncode == 0 else None
+    if p.returncode != 0:
+        last_lspci_error = f"{cmd[0]} rc={p.returncode} stderr={p.stderr.strip()[:200]}"
+        return None
+    return p.stdout
 
 
 def list_gpus(vulkan_devices=None, lspci_run=subprocess.run,
@@ -101,12 +113,15 @@ def list_gpus(vulkan_devices=None, lspci_run=subprocess.run,
     if devices:
         return [_normalize(d, "vulkan", i) for i, d in enumerate(devices)]
 
+    global last_lspci_error
     if which and which("lspci"):
         out = _run_tool(lspci_run, ["lspci", "-nn"])
         if out:
             parsed = parse_lspci(out)
             if parsed:
                 return [_normalize(d, "lspci", i) for i, d in enumerate(parsed)]
+    else:
+        last_lspci_error = "lspci not found (shutil.which returned None)"
 
     devices = sys_gpus if sys_gpus is not None else scan_sys()
     return [_normalize(d, "sys", i) for i, d in enumerate(devices)]

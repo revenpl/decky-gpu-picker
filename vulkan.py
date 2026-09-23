@@ -18,7 +18,23 @@ write can never overflow it.
 import ctypes
 import ctypes.util
 
-__all__ = ["load_vulkan", "enumerate_vulkan_devices"]
+__all__ = ["load_vulkan", "enumerate_vulkan_devices", "last_error"]
+
+# Why this module is import-safe and dependency-free, and where failures go:
+# the backend (a Nuitka-frozen process, run as root by systemd) has a different
+# environment from a normal shell, so the loader/driver may resolve differently
+# there. Any failure is recorded in `last_error` for diagnostics instead of
+# being silently swallowed, so the caller can report the real cause.
+last_error = ""
+
+# Explicit loader paths, tried after the standard lookup, to survive a backend
+# environment whose LD_LIBRARY_PATH / rpath resolves libvulkan.so.1 to a
+# different (possibly wrong) library than a normal shell does.
+_LIB_PATHS = (
+    "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+    "/usr/lib64/libvulkan.so.1",
+    "/usr/lib/libvulkan.so.1",
+)
 
 # --- Vulkan result codes ---
 VK_SUCCESS = 0
@@ -73,19 +89,43 @@ class VkPhysicalDeviceProperties(ctypes.Structure):
 
 
 def load_vulkan():
-    """Loads libvulkan.so.1 via the standard lookup path. None if missing."""
+    """Loads libvulkan.so.1 via the standard lookup path. None if missing.
+
+    Records the resolution result (and any error) in `last_error` for
+    diagnostics. Also tries explicit system paths, in case the backend's
+    environment resolves the standard name to a different library.
+    """
+    global last_error
+    errors = []
     for name in ("libvulkan.so.1", "libvulkan.so"):
         try:
-            return ctypes.CDLL(name)
-        except OSError:
-            continue
+            lib = ctypes.CDLL(name)
+            last_error = f"loaded {name}"
+            return lib
+        except OSError as exc:
+            errors.append(f"{name}: {exc}")
     path = ctypes.util.find_library("vulkan")
     if path:
         try:
-            return ctypes.CDLL(path)
-        except OSError:
-            pass
+            lib = ctypes.CDLL(path)
+            last_error = f"loaded {path}"
+            return lib
+        except OSError as exc:
+            errors.append(f"find_library->{path}: {exc}")
+    for path in _LIB_PATHS:
+        try:
+            lib = ctypes.CDLL(path)
+            last_error = f"loaded {path}"
+            return lib
+        except OSError as exc:
+            errors.append(f"{path}: {exc}")
+    last_error = "no libvulkan found: " + " | ".join(errors)
     return None
+
+
+def _fail(reason):
+    global last_error
+    last_error = reason
 
 
 def _set_argtypes(lib):
@@ -125,7 +165,8 @@ def _set_argtypes(lib):
 def enumerate_vulkan_devices():
     """Returns [{"name": str, "pci": "<vendor:device>"}] for each Vulkan device.
 
-    [] on any failure (missing loader/driver, FFI error).
+    [] on any failure (missing loader/driver, FFI error). The specific reason
+    is always recorded in `last_error` for diagnostics.
     """
     lib = load_vulkan()
     if lib is None:
@@ -142,21 +183,21 @@ def enumerate_vulkan_devices():
         ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
         ci.pApplicationInfo = ctypes.addressof(ai)
 
-        if lib.vkCreateInstance(ctypes.byref(ci), None, ctypes.byref(inst)) != VK_SUCCESS:
-            return []  # e.g. VK_ERROR_INCOMPATIBLE_DRIVER - no driver
+        rc = lib.vkCreateInstance(ctypes.byref(ci), None, ctypes.byref(inst))
+        if rc != VK_SUCCESS:
+            _fail(f"vkCreateInstance rc={rc} (e.g. {VK_ERROR_INCOMPATIBLE_DRIVER} = no ICD)")
+            return []
 
         n = ctypes.c_uint32(0)
-        if (
-            lib.vkEnumeratePhysicalDevices(inst, ctypes.byref(n), None) != VK_SUCCESS
-            or n.value == 0
-        ):
+        rc = lib.vkEnumeratePhysicalDevices(inst, ctypes.byref(n), None)
+        if rc != VK_SUCCESS or n.value == 0:
+            _fail(f"vkEnumeratePhysicalDevices(count) rc={rc} n={n.value}")
             return []
 
         devs = (ctypes.c_void_p * n.value)()
-        if (
-            lib.vkEnumeratePhysicalDevices(inst, ctypes.byref(n), devs)
-            not in (VK_SUCCESS, VK_INCOMPLETE)
-        ):
+        rc = lib.vkEnumeratePhysicalDevices(inst, ctypes.byref(n), devs)
+        if rc not in (VK_SUCCESS, VK_INCOMPLETE):
+            _fail(f"vkEnumeratePhysicalDevices(devs) rc={rc}")
             return []
 
         out = []
@@ -171,8 +212,11 @@ def enumerate_vulkan_devices():
                     "name": name,
                     "pci": f"{props.vendorID:04x}:{props.deviceID:04x}",
                 })
+        if not out:
+            _fail(f"enumerated {n.value} device(s) but none had a readable deviceName")
         return out
-    except Exception:
+    except Exception as exc:
+        _fail(f"exception: {exc!r}")
         return []
     finally:
         if inst.value is not None:

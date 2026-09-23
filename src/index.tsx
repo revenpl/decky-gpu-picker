@@ -13,7 +13,27 @@ interface Gpu {
 const listGpus = callable<[], Gpu[]>("list_gpus");
 const buildCommand = callable<[name: string, index: number | null], string>("build_command");
 
+// Copy via the synchronous execCommand API first (works inside the Steam CEF
+// webview, where the async navigator.clipboard API is typically blocked by the
+// non-secure context), then fall back to the Clipboard API. Same order as the
+// Framegen plugin, which is the reference that works on this device.
 async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.left = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (ok) return true;
+  } catch (e) {
+    console.warn("execCommand copy failed:", e);
+  }
   try {
     await navigator.clipboard.writeText(text);
     return true;
