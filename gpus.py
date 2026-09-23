@@ -39,3 +39,16 @@ def build_command(name: str, index: int | None = None, name_count: int = 1) -> s
     if index is not None and name_count > 1:
         return f"{filters} VKD3D_VULKAN_DEVICE={index} %command%"
     return f"{filters} %command%"
+
+
+def parse_lspci(text: str) -> list:
+    """`VGA compatible controller [0300]` lines from `lspci -nn` -> {"name", "pci"}."""
+    devices = []
+    for line in text.splitlines():
+        if "VGA compatible controller [0300]" not in line:
+            continue
+        brackets = re.findall(r"\[([^\]]+)\]", line)
+        pci_m = re.search(r"\[([0-9a-fA-F]{4}:[0-9a-fA-F]{4})\]", line)
+        name = next((b for b in brackets if " " in b), None)
+        devices.append({"name": name, "pci": pci_m.group(1) if pci_m else None})
+    return devices
