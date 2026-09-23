@@ -1,0 +1,11 @@
+{
+  "name": "GPU Picker",
+  "author": "Maciej",
+  "flags": ["debug"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["utility", "gpu", "linux"],
+    "description": "GPU list (zero install) + copies the launch command (VKD3D_FILTER_DEVICE_NAME=... %command%) to the clipboard.",
+    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+  }
+}
