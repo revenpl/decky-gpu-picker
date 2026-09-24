@@ -68,9 +68,9 @@ def parse_lspci(text: str) -> list:
         name = None
         # Vendor bracket followed by a bare device name at the end:
         #   "Advanced Micro Devices, Inc. [AMD/ATI] Phoenix1"
-        m = re.search(r"\[[^\]]*\]\s+([^\[\]()]+)\s*$", rest)
+        m = re.search(r"\[[^\]]*\]\s+([^\[\]()]+?)\s*$", rest)
         if m:
-            name = m.group(1)
+            name = m.group(1).strip()
         if not name:
             # No separate device token: use the last bracket that contains a
             # space (vendor names contain spaces, PCI IDs do not).
