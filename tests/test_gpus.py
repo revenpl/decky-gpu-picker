@@ -13,35 +13,76 @@ LSPCI_FIXTURE = """\
 
 
 class BuildCommandTest(unittest.TestCase):
-    def test_unique_name_uses_name_only(self):
+    def test_unique_name_uses_token_only(self):
+        # "9070 XT" -> model token "9070" (a substring of the Vulkan device name).
         self.assertEqual(
             build_command("9070 XT", index=0, name_count=1),
-            'VKD3D_FILTER_DEVICE_NAME="9070 XT" '
-            'DXVK_FILTER_DEVICE_NAME="9070 XT" %command%',
+            'VKD3D_FILTER_DEVICE_NAME="9070" '
+            'DXVK_FILTER_DEVICE_NAME="9070" %command%',
         )
 
     def test_duplicate_name_adds_device_index(self):
+        # "Radeon RX 7900 XTX" -> token "7900"; duplicated name -> also device index.
         self.assertEqual(
             build_command("Radeon RX 7900 XTX", index=1, name_count=2),
-            'VKD3D_FILTER_DEVICE_NAME="Radeon RX 7900 XTX" '
-            'DXVK_FILTER_DEVICE_NAME="Radeon RX 7900 XTX" '
+            'VKD3D_FILTER_DEVICE_NAME="7900" '
+            'DXVK_FILTER_DEVICE_NAME="7900" '
             'VKD3D_VULKAN_DEVICE=1 %command%',
         )
 
     def test_legacy_call_without_index(self):
         self.assertEqual(
             build_command("9070 XT"),
-            'VKD3D_FILTER_DEVICE_NAME="9070 XT" '
-            'DXVK_FILTER_DEVICE_NAME="9070 XT" %command%',
+            'VKD3D_FILTER_DEVICE_NAME="9070" '
+            'DXVK_FILTER_DEVICE_NAME="9070" %command%',
         )
 
     def test_escapes_quotes(self):
+        # No 3-4 digit sequence -> fall back to the raw name, still escaped.
         self.assertEqual(
             build_command('A"B', index=0, name_count=2),
             'VKD3D_FILTER_DEVICE_NAME="A\\"B" '
             'DXVK_FILTER_DEVICE_NAME="A\\"B" '
             'VKD3D_VULKAN_DEVICE=0 %command%',
         )
+
+
+class FamilyStringRegressionTest(unittest.TestCase):
+    """The real bug: the lspci fallback reports a *family* string
+    (e.g. 'Radeon RX 9070/9070 XT/9070 GRE') that is NOT a substring of any
+    concrete Vulkan device name, so a command built from it never matched.
+    The fix must reduce such names to a model token that IS a substring of the
+    real Vulkan name."""
+
+    REAL_VULKAN = {
+        "9070": "AMD Radeon RX 9070 XT (RADV GFX1201)",
+        "7900": "AMD Radeon RX 7900 XTX (RADV NAVI31)",
+    }
+
+    def test_9070_family_string_reduces_to_matching_token(self):
+        from gpus import _extract_model_token
+        token = _extract_model_token("Radeon RX 9070/9070 XT/9070 GRE")
+        self.assertEqual(token, "9070")
+        # The token must be a (case-insensitive) substring of the real Vulkan name.
+        self.assertIn(token.lower(), self.REAL_VULKAN["9070"].lower())
+        # And the OLD full family string must NOT be (this is the bug).
+        self.assertNotIn(
+            "Radeon RX 9070/9070 XT/9070 GRE", self.REAL_VULKAN["9070"],
+        )
+
+    def test_7900_family_string_reduces_to_matching_token(self):
+        from gpus import _extract_model_token
+        token = _extract_model_token("Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M")
+        self.assertEqual(token, "7900")
+        self.assertIn(token.lower(), self.REAL_VULKAN["7900"].lower())
+
+    def test_full_vulkan_name_also_reduces_to_matching_token(self):
+        # When the name came from the working Vulkan path, the token must still
+        # be a substring of the (identical) Vulkan device name.
+        from gpus import _extract_model_token
+        for vulk in self.REAL_VULKAN.values():
+            token = _extract_model_token(vulk)
+            self.assertIn(token.lower(), vulk.lower())
 
 
 class FakeRun:

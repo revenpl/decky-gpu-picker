@@ -23,6 +23,27 @@ __all__ = [
 last_lspci_error = ""
 
 
+def _extract_model_token(name: str) -> str:
+    """Extract a short model token from a GPU name for the VKD3D/DXVK filter.
+
+    VKD3D_FILTER_DEVICE_NAME / DXVK_FILTER_DEVICE_NAME are case-insensitive
+    substring matches on the *Vulkan* device name (e.g. "AMD Radeon RX 9070 XT
+    (RADV GFX1201)"). The lspci fallback, however, reports a *family* string
+    such as "Radeon RX 9070/9070 XT/9070 GRE", which is NOT a substring of any
+    concrete Vulkan device name, so a command built from it never matches.
+
+    A short model token (the 3-4 digit model number plus any immediately
+    following variant letters, e.g. "9070", "7900", "580") IS a substring of
+    the Vulkan device name and of the lspci family string alike, so it works
+    regardless of which source produced the name. When no digit sequence is
+    found (e.g. "Phoenix1" on a Legion Go), fall back to the original name.
+    """
+    m = re.search(r"\b(\d{3,4})([A-Za-z0-9]{1,2})?", name)
+    if m:
+        return m.group(1) + (m.group(2) or "")
+    return name
+
+
 def build_command(name: str, index: int | None = None, name_count: int = 1) -> str:
     """Build the launch-option command for the chosen GPU.
 
@@ -32,11 +53,13 @@ def build_command(name: str, index: int | None = None, name_count: int = 1) -> s
     position; in vkd3d-proton the index wins over the name filter, which
     stays as a safety net).
 
-    The VKD3D/DXVK filter is a substring match on the Vulkan device name, so
-    the full deviceName is safe. Backslash and double quote are escaped so
-    the name does not break the shell.
+    The filter value is a short model token (see _extract_model_token) so the
+    command works whether the name came from the Vulkan path or the lspci
+    family-string fallback. Backslash and double quote are escaped so the
+    token does not break the shell.
     """
-    safe = name.replace("\\", "\\\\").replace('"', '\\"')
+    token = _extract_model_token(name)
+    safe = token.replace("\\", "\\\\").replace('"', '\\"')
     filters = (
         f'VKD3D_FILTER_DEVICE_NAME="{safe}" '
         f'DXVK_FILTER_DEVICE_NAME="{safe}"'
