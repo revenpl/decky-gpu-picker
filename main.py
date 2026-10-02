@@ -55,12 +55,17 @@ class Plugin:
         _write_diagnostic(result)
         return result
 
-    async def build_command(self, name: str, index: int | None = None) -> str:
-        """Called from the frontend as callable('build_command', name, index).
+    async def build_command(self, name: str, index: int | None = None,
+                            pci: str | None = None) -> str:
+        """Called from the frontend as callable('build_command', name, index, pci).
 
-        `index` = position of the clicked card in the GPU list. A unique name
-        -> name filters only. A duplicated name (the same name appears more
-        than once in the list) -> additionally VKD3D_VULKAN_DEVICE=<index>.
+        `pci` = the PCI id of the clicked card - the stable, name-independent
+        device identity, and the PRIMARY selector (MESA_VK_DEVICE_SELECT). This
+        is what makes a nameless iGPU (e.g. "Radeon Graphics", PCI 1002:13c0)
+        selectable, where a name-based filter can never match.
+        `index` = position of the clicked card in the GPU list; a duplicated
+        name (the same name appears more than once) -> additionally
+        VKD3D_VULKAN_DEVICE=<index> to pick the exact instance.
         """
         count = sum(1 for d in gpus.list_gpus() if d.get("name") == name)
-        return gpus.build_command(name, index, name_count=count)
+        return gpus.build_command(name, pci=pci, index=index, name_count=count)

@@ -23,6 +23,9 @@ __all__ = [
 last_lspci_error = ""
 
 
+_MODEL_RE = re.compile(r"\b(\d{3,4})([A-Za-z0-9]{1,2})?")
+
+
 def _extract_model_token(name: str) -> str:
     """Extract a short model token from a GPU name for the VKD3D/DXVK filter.
 
@@ -30,43 +33,72 @@ def _extract_model_token(name: str) -> str:
     substring matches on the *Vulkan* device name (e.g. "AMD Radeon RX 9070 XT
     (RADV GFX1201)"). The lspci fallback, however, reports a *family* string
     such as "Radeon RX 9070/9070 XT/9070 GRE", which is NOT a substring of any
-    concrete Vulkan device name, so a command built from it never matches.
+    concrete Vulkan device name, so a command built from the raw family string
+    never matches.
 
     A short model token (the 3-4 digit model number plus any immediately
     following variant letters, e.g. "9070", "7900", "580") IS a substring of
     the Vulkan device name and of the lspci family string alike, so it works
     regardless of which source produced the name. When no digit sequence is
-    found (e.g. "Phoenix1" on a Legion Go), fall back to the original name.
+    found (e.g. "Radeon Graphics" on an iGPU, or "Phoenix1" on a Legion Go),
+    the original name is returned unchanged.
     """
-    m = re.search(r"\b(\d{3,4})([A-Za-z0-9]{1,2})?", name)
+    m = _MODEL_RE.search(name)
     if m:
         return m.group(1) + (m.group(2) or "")
     return name
 
 
-def build_command(name: str, index: int | None = None, name_count: int = 1) -> str:
-    """Build the launch-option command for the chosen GPU.
+def _esc(value: str) -> str:
+    """Escape a value for safe inclusion inside a double-quoted shell word."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
-    A unique name (name_count == 1) -> name filters only, the most stable
-    selector. A duplicated name (name_count > 1, e.g. two identical cards) ->
-    additionally VKD3D_VULKAN_DEVICE=<index> (the 0-based enumeration
-    position; in vkd3d-proton the index wins over the name filter, which
-    stays as a safety net).
 
-    The filter value is a short model token (see _extract_model_token) so the
-    command works whether the name came from the Vulkan path or the lspci
-    family-string fallback. Backslash and double quote are escaped so the
-    token does not break the shell.
+def build_command(name: str, pci: str | None = None,
+                  index: int | None = None, name_count: int = 1) -> str:
+    """Build the launch-option command that forces the chosen GPU.
+
+    PRIMARY selector (whenever a PCI id is known):
+        MESA_VK_DEVICE_SELECT="<pci>!"
+    The VK_LAYER_MESA_device_select layer is *implicit* on Mesa/RADV systems,
+    so it auto-loads into every Vulkan application - including vkd3d-proton
+    - and selects the device by PCI id, INDEPENDENT of the (often wrong)
+    device NAME. The trailing "!" makes the selected device the only one
+    visible to the app. This is what makes a nameless iGPU (e.g. "Radeon
+    Graphics", PCI 1002:13c0) selectable at all: a name-based filter can never
+    match such a device and vkd3d-proton would crash with no device.
+
+    A duplicated name (name_count > 1, two identical cards sharing a PCI id)
+    additionally gets VKD3D_VULKAN_DEVICE=<index> (0-based enumeration
+    position) to pick the exact instance.
+
+    NO name filter is emitted when PCI is known: a name-based filter (VKD3D/
+    DXVK_FILTER_DEVICE_NAME) is a case-insensitive substring match on the
+    *Vulkan* device name, and the name the plugin holds may be an lspci family
+    string or a CPU name that is NOT a substring of the real Vulkan name
+    (e.g. "9800X3" is not a substring of "AMD Ryzen 7 9800X3D ... (RADV ...)"),
+    in which case it would zero out the device list and crash. The PCI select
+    is the authoritative, verified selector - adding a name filter only
+    introduces that crash risk with no benefit.
+
+    Only when PCI is entirely missing (degenerate enumeration) do we fall back
+    to the legacy model-token name filter.
     """
-    token = _extract_model_token(name)
-    safe = token.replace("\\", "\\\\").replace('"', '\\"')
-    filters = (
-        f'VKD3D_FILTER_DEVICE_NAME="{safe}" '
-        f'DXVK_FILTER_DEVICE_NAME="{safe}"'
-    )
-    if index is not None and name_count > 1:
-        return f"{filters} VKD3D_VULKAN_DEVICE={index} %command%"
-    return f"{filters} %command%"
+    parts: list[str] = []
+
+    if pci:
+        parts.append(f'MESA_VK_DEVICE_SELECT="{_esc(pci)}!"')
+        if index is not None and name_count > 1:
+            parts.append(f'VKD3D_VULKAN_DEVICE={index}')
+    else:
+        m = _MODEL_RE.search(name)
+        token = (m.group(1) + (m.group(2) or "")) if m else name
+        parts.append(f'VKD3D_FILTER_DEVICE_NAME="{_esc(token)}"')
+        parts.append(f'DXVK_FILTER_DEVICE_NAME="{_esc(token)}"')
+        if index is not None and name_count > 1:
+            parts.append(f'VKD3D_VULKAN_DEVICE={index}')
+
+    return " ".join(parts) + " %command%"
 
 
 def parse_lspci(text: str) -> list:

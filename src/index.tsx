@@ -11,7 +11,7 @@ interface Gpu {
 }
 
 const listGpus = callable<[], Gpu[]>("list_gpus");
-const buildCommand = callable<[name: string, index: number | null], string>("build_command");
+const buildCommand = callable<[name: string, index: number | null, pci: string | null], string>("build_command");
 
 // Copy via the synchronous execCommand API first (works inside the Steam CEF
 // webview, where the async navigator.clipboard API is typically blocked by the
@@ -73,7 +73,7 @@ function Content() {
 
   const copyFor = async (gpu: Gpu) => {
     try {
-      const cmd = await buildCommand(gpu.name, gpu.index);
+      const cmd = await buildCommand(gpu.name, gpu.index, gpu.pci);
       if (await copyToClipboard(cmd)) {
         toaster.toast({ title: "Copied command to clipboard", body: cmd });
       } else {

@@ -38,12 +38,63 @@ class BuildCommandTest(unittest.TestCase):
         )
 
     def test_escapes_quotes(self):
-        # No 3-4 digit sequence -> fall back to the raw name, still escaped.
+        # No 3-4 digit sequence and no PCI -> fall back to the raw name, escaped.
         self.assertEqual(
             build_command('A"B', index=0, name_count=2),
             'VKD3D_FILTER_DEVICE_NAME="A\\"B" '
             'DXVK_FILTER_DEVICE_NAME="A\\"B" '
             'VKD3D_VULKAN_DEVICE=0 %command%',
+        )
+
+    def test_nameless_igpu_uses_pci_select_only(self):
+        # The real bug: a nameless iGPU ("Radeon Graphics", no model number).
+        # The PCI id is the only usable selector; the harmful raw-name filter
+        # (which would match no Vulkan device and crash vkd3d) is omitted.
+        self.assertEqual(
+            build_command("Radeon Graphics", pci="1002:13c0",
+                          index=2, name_count=1),
+            'MESA_VK_DEVICE_SELECT="1002:13c0!" %command%',
+        )
+
+    def test_dgpu_uses_pci_select(self):
+        # dGPU with a PCI id: the PCI select is the sole, authoritative
+        # selector. No name filter - it is a substring match that is useless
+        # here (the name may be a family string) and risks crashing the app
+        # if it is not a substring of the real Vulkan name.
+        self.assertEqual(
+            build_command("Radeon RX 9070 XT", pci="1002:7550",
+                          index=1, name_count=1),
+            'MESA_VK_DEVICE_SELECT="1002:7550!" %command%',
+        )
+
+    def test_vulkan_named_igpu_uses_pci_select_only(self):
+        # The name came from the working Vulkan path and is a CPU name with a
+        # confusing number ("9800X3D"). A naive model token ("9800X3") would
+        # NOT be a substring of the real name and would crash the app. The PCI
+        # select is the only correct selector here.
+        self.assertEqual(
+            build_command("AMD Ryzen 7 9800X3D 8-Core Processor (RADV RAPHAEL_MENDOCINO)",
+                          pci="1002:13c0", index=0, name_count=1),
+            'MESA_VK_DEVICE_SELECT="1002:13c0!" %command%',
+        )
+
+    def test_duplicate_dgpu_pci_plus_index(self):
+        # Two identical cards share a PCI id: PCI select narrows to the family,
+        # VKD3D_VULKAN_DEVICE picks the exact instance.
+        self.assertEqual(
+            build_command("Radeon RX 7900 XTX", pci="1002:744c",
+                          index=1, name_count=2),
+            'MESA_VK_DEVICE_SELECT="1002:744c!" '
+            'VKD3D_VULKAN_DEVICE=1 %command%',
+        )
+
+    def test_no_pci_falls_back_to_name_token(self):
+        # Degenerate enumeration (no PCI id at all): fall back to the legacy
+        # model-token name filter.
+        self.assertEqual(
+            build_command("Radeon RX 9070/9070 XT/9070 GRE"),
+            'VKD3D_FILTER_DEVICE_NAME="9070" '
+            'DXVK_FILTER_DEVICE_NAME="9070" %command%',
         )
 
 
