@@ -95,6 +95,19 @@ function Content() {
           <FaSync /> {gpus ? "Refresh GPU list" : "Fetching GPU list…"}
         </ButtonItem>
       </PanelSectionRow>
+      <PanelSectionRow>
+        <div style={{ lineHeight: 1.5, opacity: 0.85 }}>
+          <strong>How to use</strong>
+          <ol style={{ margin: "6px 0 0 0", paddingLeft: 20, opacity: 0.9 }}>
+            <li>Click a GPU below to copy its command.</li>
+            <li>
+              In Steam: right-click the game → <strong>Properties</strong> →{" "}
+              <strong>Launch Options</strong>.
+            </li>
+            <li>Paste the command there (replaces an existing one) and launch.</li>
+          </ol>
+        </div>
+      </PanelSectionRow>
       {error !== null && (
         <PanelSectionRow>
           <div style={{ color: "red", whiteSpace: "pre-wrap" }}>Error: {error}</div>
