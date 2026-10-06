@@ -102,9 +102,13 @@ function Content() {
             <li>Click a GPU below to copy its command.</li>
             <li>
               In Steam: right-click the game → <strong>Properties</strong> →{" "}
-              <strong>Launch Options</strong>.
+              <strong>General</strong> tab → <strong>Launch Options</strong>.
             </li>
-            <li>Paste the command there (replaces an existing one) and launch.</li>
+            <li>
+              Paste the command there. If options already exist, add the copied
+              env vars at the <em>beginning</em> — keep a single{" "}
+              <code>%command%</code> at the end.
+            </li>
           </ol>
         </div>
       </PanelSectionRow>
