@@ -45,7 +45,28 @@ and restart Decky.
 Open the plugin -> GPU list (`deviceName` from the Vulkan loader; fallback `lspci`; fallback /sys) ->
 click a card -> the command lands in the clipboard -> paste it into the game's "Launch Options" in Steam.
 
+## Known environment quirk: Decky Loader (SteamOS)
+
+The Decky Loader is a PyInstaller bundle: it unpacks itself to a temp dir
+(e.g. `/tmp/_MEI...`) containing its *own* copies of `libstdc++.so.6`,
+`libz.so.1`, `libffi.so.8` and puts that dir in `LD_LIBRARY_PATH`. Inside the
+plugin backend process, the Vulkan loader then dlopens the AMD ICD
+(`libvulkan_radeon.so`), whose dependencies resolve to the bundle's copies ->
+`VK_ERROR_INCOMPATIBLE_DRIVER` (`rc=-3`) -> zero devices -> the `lspci`
+fallback (why the iGPU showed as `Phoenix1` on a Legion Go).
+
+The dynamic linker's search path is fixed at process start, so in-process
+fixes (e.g. editing `os.environ`) cannot repair it. The plugin handles this
+with a fallback: if in-process enumeration yields no devices, it re-runs
+enumeration in a clean child process with all `LD_*` variables stripped, so
+the system driver libraries are resolved instead
+(`vulkan.py`: `_subprocess_enumerate`). Stdlib only, recursion-guarded.
+
+If the GPU list still looks wrong, the exact reasons are written to the first
+writable location of `~/.gpu_diag.txt` / `/tmp/gpu_diag.txt` (the SteamOS
+plugin dir is root-owned) and to the backend log.
+
 ## Development
-    python3 -m unittest -v      # 20 tests (17 GPU logic + 3 FFI contract)
+    python3 -m unittest -v      # 23 tests (17 GPU logic + 6 Vulkan FFI/fallback)
     npm install && npm run build
     ./package.sh
