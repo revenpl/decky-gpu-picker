@@ -1,12 +1,12 @@
 {
   "name": "GPU Picker",
-  "author": "Maciej",
-  "version": "0.2.0",
+  "author": "Maciej Śmietanko",
+  "version": "0.2.1",
   "flags": ["debug"],
   "api_version": 1,
   "publish": {
     "tags": ["utility", "gpu", "linux"],
-    "description": "GPU list (zero install) + copies the launch command (VKD3D_FILTER_DEVICE_NAME=... %command%) to the clipboard.",
-    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+    "description": "Lists the Vulkan GPUs (exact device + PCI id) and copies the launch command MESA_VK_DEVICE_SELECT=\"<vendor:device>!\" %command% to the clipboard — pin a game to a specific GPU. Pure stdlib backend, no dependencies.",
+    "image": "https://raw.githubusercontent.com/revenpl/decky-gpu-picker/main/screenshot.jpg"
   }
 }

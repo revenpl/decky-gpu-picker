@@ -1,5 +1,7 @@
 # GPU Picker (Decky plugin)
 
+![GPU Picker](screenshot.jpg)
+
 GPU list + copies the ready-made game launch command to the clipboard:
 
     MESA_VK_DEVICE_SELECT="<vendor:device>!" %command%

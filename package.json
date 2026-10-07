@@ -1,6 +1,6 @@
 {
   "name": "decky-gpu-picker",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Decky plugin: pick a GPU and copy the launch command to the clipboard (zero runtime dependencies)",
   "type": "module",
   "scripts": {
