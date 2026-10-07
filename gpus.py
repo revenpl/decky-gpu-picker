@@ -91,8 +91,7 @@ def build_command(name: str, pci: str | None = None,
         if index is not None and name_count > 1:
             parts.append(f'VKD3D_VULKAN_DEVICE={index}')
     else:
-        m = _MODEL_RE.search(name)
-        token = (m.group(1) + (m.group(2) or "")) if m else name
+        token = _extract_model_token(name)
         parts.append(f'VKD3D_FILTER_DEVICE_NAME="{_esc(token)}"')
         parts.append(f'DXVK_FILTER_DEVICE_NAME="{_esc(token)}"')
         if index is not None and name_count > 1:
