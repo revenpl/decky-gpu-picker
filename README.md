@@ -2,6 +2,9 @@
 
 ![GPU Picker](screenshot.jpg)
 
+> **Not in the official Decky Plugin Store — on purpose.**
+> It was submitted to [SteamDeckHomebrew/decky-plugin-database](https://github.com/SteamDeckHomebrew/decky-plugin-database) (PR #1142, October 2026) and declined by the maintainers: the store's policy rejects plugins developed with extensive use of generative AI. The code here is fully open source (BSD-3-Clause), unit-tested (23 tests) and verified on two real devices across the Stable and Beta SteamOS channels — install it manually below.
+
 GPU list + copies the ready-made game launch command to the clipboard:
 
     MESA_VK_DEVICE_SELECT="<vendor:device>!" %command%
@@ -36,12 +39,27 @@ Pattern: the GPU-selection fix for SteamOS (2026-09-21).
 (libvulkan.so.1, present on SteamOS); we install nothing. Fallback: lspci -> /sys.
 
 ## Installation
-1. `./package.sh` (needs node + npm + python3) -> `decky-gpu-picker.zip`.
-2. Move the zip to the machine with Decky.
-3. Decky -> Plugins -> Install from zip -> enable "GPU Picker".
+1. In Decky: **Settings** (gear) → **General** → turn on **Developer mode**.
+2. A new **Developer** section appears in the main Decky menu — open it.
+3. Pick one:
+   - **Install from URL** → paste:
+     `https://github.com/revenpl/decky-gpu-picker/releases/download/v0.2.1/decky-gpu-picker.zip`
+   - **Install from zip** → first download the zip from
+     [GitHub Releases](https://github.com/revenpl/decky-gpu-picker/releases)
+     (e.g. `wget -O decky-gpu-picker.zip "https://github.com/revenpl/decky-gpu-picker/releases/download/v0.2.1/decky-gpu-picker.zip"`),
+     then select that file in Decky.
+4. **Enable** "GPU Picker" in the plugin list. Done.
 
-Dev alternative: copy the directory (with `dist/`) to `~/homebrew/plugins/decky-gpu-picker/`
+<details>
+<summary>Building from source (developers)</summary>
+
+1. `npm install && npm run build` (needs node + npm + python3)
+2. `./package.sh` → `decky-gpu-picker.zip`
+3. Install the zip as above (Decky → Developer → Install from zip).
+
+Dev shortcut: copy the directory (with `dist/`) to `~/homebrew/plugins/decky-gpu-picker/`
 and restart Decky.
+</details>
 
 ## Usage
 Open the plugin -> GPU list (`deviceName` from the Vulkan loader; fallback `lspci`; fallback /sys) ->
